@@ -1,0 +1,56 @@
+# pyproject.toml
+[project]
+name = "mcp-ml-lab"
+version = "0.1.0"
+description = "MCP server that lets AI agents run real ML experiments end-to-end."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Rohith" }]
+keywords = ["mcp", "ml", "automl", "xgboost", "lightgbm", "optuna"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "mcp[cli]>=1.2.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.5.0",
+    "xgboost>=2.1.0",
+    "lightgbm>=4.5.0",
+    "optuna>=4.0.0",
+    "pydantic>=2.9.0",
+    "sqlalchemy>=2.0.0",
+    "joblib>=1.4.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6.0",
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.scripts]
+mcp-ml-lab = "mcp_ml_lab.server:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
