@@ -93,3 +93,69 @@ def inspect_data_impl(csv_path: str) -> dict:
         "numeric_stats": numeric_stats,
         "categorical_summary": categorical_summary,
     }
+    
+import json
+
+from mcp_ml_lab import data, storage
+
+
+def define_task_impl(
+    csv_path: str,
+    target_column: str,
+    task_type: str = "classification",
+    ignore_columns: list[str] | None = None,
+    seed: int = 42,) -> dict:
+    """Register an ML task in the store and return its task_id.
+
+    Idempotent: calling with the same (csv_path, target_column, task_type) returns
+    the existing task_id with status="existing".
+    """
+    try:
+        df = data.load_csv(csv_path)
+        data.validate_task(df, target_column, task_type)
+        schema = data.infer_schema(df, target_column, ignore_columns)
+        # construct the preprocessor as a smoke test — if it raises now,
+        # better to surface here than mid-experiment on Day 3.
+        _ = data.build_preprocessor(schema)
+    except FileNotFoundError as e:
+        return {"error": str(e), "type": "FileNotFoundError"}
+    except ValueError as e:
+        return {"error": str(e), "type": "ValidationError"}
+    except Exception as e:
+        return {"error": str(e), "type": e.__class__.__name__}
+
+    task_id = data.generate_task_id(csv_path, target_column, task_type)
+    abs_path = str(Path(csv_path).expanduser().resolve())
+
+    with storage.get_session() as s:
+        existing = s.get(storage.Task, task_id)
+        if existing is not None:
+            return {
+                "task_id": task_id,
+                "csv_path": existing.csv_path,
+                "target_column": existing.target_column,
+                "task_type": existing.task_type,
+                "schema": json.loads(existing.schema_json),
+                "n_rows": int(len(df)),
+                "status": "existing",
+            }
+        s.add(
+            storage.Task(
+                id=task_id,
+                csv_path=abs_path,
+                target_column=target_column,
+                task_type=task_type,
+                schema_json=json.dumps(schema),
+                seed=seed,
+            )
+        )
+
+    return {
+        "task_id": task_id,
+        "csv_path": abs_path,
+        "target_column": target_column,
+        "task_type": task_type,
+        "schema": schema,
+        "n_rows": int(len(df)),
+        "status": "created",
+    }
