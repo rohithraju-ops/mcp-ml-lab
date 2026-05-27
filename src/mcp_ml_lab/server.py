@@ -83,37 +83,53 @@ def define_task(
 @mcp.tool()
 def run_experiment(
     task_id: str,
-    model_name: str = "xgboost",
-    params: dict | None = None,
-    n_splits: int = 5,) -> dict:
-    """Train one model on a registered task using k-fold cross-validation.
+    models: list[str] | None = None,
+    search_strategy: str = "default",
+    time_budget_seconds: int = 60,
+    n_trials_max: int = 100,
+    n_splits: int = 5,
+    params: dict | None = None,) -> dict:
+    """Train one or more models on a registered task, optionally tuning hyperparameters.
 
-    Call this AFTER define_task has registered the task. Returns mean and
-    std of every classification metric across folds, plus the per-fold scores
-    so you can spot instability.
+    Call this after define_task. The same call can train multiple models and
+    return the overall winner.
 
-    v0.1.0 Day 3 ships without hyperparameter search — pass params=None to use
-    sensible defaults, or pass a dict to override individual settings.
-    Hyperparameter tuning (Optuna) lands in the next release.
+    Two strategies:
+      - search_strategy="default" (fast, ~5 seconds total): each model trained
+        once with sensible defaults. `params` can override defaults only when
+        exactly one model is listed.
+      - search_strategy="optuna" (recommended for real use): each model gets
+        its own Optuna TPE search, sharing the time budget equally. The trials
+        table will hold one row per Optuna trial — typically 20-60 per model
+        within a 60-second budget.
 
     Args:
-        task_id: Returned by define_task. Must already exist in the store.
-        model_name: One of the available trainers. Currently: "xgboost", "lightgbm".
-        params: Optional dict of hyperparameter overrides. Unknown keys are
-            passed straight to the underlying library — typos will error there.
-        n_splits: Number of CV folds (default 5).
+        task_id: From define_task.
+        models: List of trainer names. None or empty list = all available
+            (currently ["lightgbm", "xgboost"]).
+        search_strategy: "default" or "optuna".
+        time_budget_seconds: Wall-clock budget for Optuna search, divided
+            evenly across models. Ignored when search_strategy="default".
+        n_trials_max: Hard cap on Optuna trial count per model. Acts as a
+            circuit breaker — Optuna stops at whichever of (timeout, this) hits first.
+        n_splits: CV folds per trial (default 5).
+        params: Hyperparameter overrides. Honored only when
+            search_strategy="default" AND len(models)==1.
 
     Returns:
-        On success: dict with `experiment_id`, `primary_metric`, `best_score`,
-        `aggregated_metrics` (mean/std per metric), `fold_metrics` (per-fold dicts),
-        timing info, and the resolved `params_used`.
+        On success: dict with `experiment_id`, `best_model`, `best_score`,
+        `best_params`, `total_trials`, and a `per_model` breakdown
+        (best score, best params, trial count per model).
         On failure: dict with `error` and `type`.
     """
     return run_experiment_impl(
         task_id=task_id,
-        model_name=model_name,
-        params=params,
+        models=models,
+        search_strategy=search_strategy,
+        time_budget_seconds=time_budget_seconds,
+        n_trials_max=n_trials_max,
         n_splits=n_splits,
+        params=params,
     )
 
 

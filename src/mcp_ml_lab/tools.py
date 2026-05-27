@@ -169,13 +169,29 @@ def define_task_impl(
 
 def run_experiment_impl(
     task_id: str,
-    model_name: str = "xgboost",
-    params: dict | None = None,
-    n_splits: int = 5,) -> dict:
-    """Train one model on the registered task using cross-validation.
+    models: list[str] | None = None,
+    search_strategy: str = "default",
+    time_budget_seconds: int = 60,
+    n_trials_max: int = 100,
+    n_splits: int = 5,
+    params: dict | None = None,) -> dict:
+    """Run a multi-model classification experiment, optionally tuning with Optuna.
+
+     Behavior:
+      - search_strategy="default": each model trained once with its default
+        params (or `params` if provided AND len(models)==1).
+      - search_strategy="optuna": each model gets its own Optuna study,
+        sharing the time budget equally. Best across all models wins.
     """
+    # ---- 0. Validate inputs ----
+    if search_strategy not in {"default", "optuna"}:
+        return {
+            "error": f"search_strategy must be 'default' or 'optuna', got {search_strategy!r}",
+            "type": "ValidationError",
+        }
+
+    # ---- 1. Look up the task ----
     try:
-        # 1. Look up the task
         with storage.get_session() as s:
             task = s.get(storage.Task, task_id)
             if task is None:
@@ -192,76 +208,179 @@ def run_experiment_impl(
                 "type": "UnsupportedTaskType",
             }
 
-        # 2. Build the trainer + merged params
-        trainer = trainers.get_trainer(model_name)
-        merged_params = {**trainer.default_params(), **(params or {})}
+        # ---- 2. Resolve model list ----
+        available = trainers.available_trainers()
+        if models is None or models == []:
+            model_list = available
+        else:
+            unknown = [m for m in models if m not in available]
+            if unknown:
+                return {
+                    "error": f"Unknown model(s): {unknown}. Available: {available}",
+                    "type": "ValidationError",
+                }
+            model_list = list(dict.fromkeys(models))  # dedupe, preserve order
 
-        # 3. Reload the CSV and trim to features the schema knows about
+        # ---- 3. Load data + build preprocessor ----
         df = data.load_csv(csv_path)
         y = df[target_column].to_numpy()
         feature_cols = schema["numeric"] + schema["categorical"]
         X = df[feature_cols]
-
-        # 4. Rebuild the unfit preprocessor from the persisted schema
         preprocessor = data.build_preprocessor(schema)
+        n_classes = schema["n_classes"]
 
-        # 5. Run CV
-        cv_result = search.cross_validate_classification(
-            trainer=trainer,
-            X=X,
-            y=y,
-            preprocessor=preprocessor,
-            params=merged_params,
-            n_splits=n_splits,
-            seed=seed,
-            n_classes=schema["n_classes"],
-        )
     except ValueError as e:
         return {"error": str(e), "type": "ValidationError"}
     except Exception as e:
         return {"error": str(e), "type": e.__class__.__name__}
 
-    # 6. Pick primary metric and persist
-    has_proba = any("auc" in m or "auc_ovr" in m for m in cv_result["fold_metrics"])
-    primary = primary_metric_name(schema["n_classes"], has_proba)
-    best_score = cv_result["aggregated"][primary]["mean"]
-
+    # ---- 4. Create experiment row (status="running") ----
     experiment_id = f"exp_{uuid.uuid4().hex[:10]}"
-
     with storage.get_session() as s:
         s.add(
             storage.Experiment(
                 id=experiment_id,
                 task_id=task_id,
-                models=json.dumps([model_name]),
-                search_strategy="default",
-                time_budget_s=None,
-                status="complete",
-                best_model=model_name,
-                best_score=best_score,
-                finished_at=datetime.utcnow(),
+                models=json.dumps(model_list),
+                search_strategy=search_strategy,
+                time_budget_s=time_budget_seconds if search_strategy == "optuna" else None,
+                status="running",
             )
         )
-        s.add(
-            storage.Trial(
-                experiment_id=experiment_id,
-                model=model_name,
-                params_json=json.dumps(merged_params),
-                metrics_json=json.dumps(cv_result["aggregated"]),
-                duration_s=cv_result["total_fit_seconds"],
-            )
-        )
+
+    # Determine primary metric once — same across all models for this task
+    # (assumes all trainers either support predict_proba or none do, which
+    # is true for v0.1.0's XGBoost + LightGBM.)
+    sample_trainer = trainers.get_trainer(model_list[0])
+    has_proba_for_sample = sample_trainer.predict_proba is not BaseTrainer_predict_proba_default()
+    primary = primary_metric_name(n_classes, True)
+    # Both v0.1.0 trainers do support predict_proba; simpler to just pass True.
+
+    # Split the time budget across models when tuning
+    per_model_budget = (
+        max(1, time_budget_seconds // len(model_list))
+        if search_strategy == "optuna"
+        else None
+    )
+
+    per_model_results: dict[str, dict] = {}
+    overall_best_score = -float("inf")
+    overall_best_model: str | None = None
+    overall_best_params: dict | None = None
+    total_trials = 0
+
+    # ---- 5. Run each model ----
+    for model_name in model_list:
+        trainer = trainers.get_trainer(model_name)
+
+        # Per-trial persistence callback
+        def make_persister(model: str):
+            def persist(trial_info: dict) -> None:
+                with storage.get_session() as s:
+                    s.add(
+                        storage.Trial(
+                            experiment_id=experiment_id,
+                            model=model,
+                            params_json=json.dumps(trial_info["params"]),
+                            metrics_json=json.dumps(trial_info["metrics"]),
+                            duration_s=trial_info["duration_s"],
+                        )
+                    )
+            return persist
+
+        persister = make_persister(model_name)
+
+        try:
+            if search_strategy == "default":
+                # Single trial with defaults (+ optional override if single model)
+                effective_params = trainer.default_params()
+                if params is not None and len(model_list) == 1:
+                    effective_params = {**effective_params, **params}
+
+                cv_result = search.cross_validate_classification(
+                    trainer=trainer,
+                    X=X,
+                    y=y,
+                    preprocessor=preprocessor,
+                    params=effective_params,
+                    n_splits=n_splits,
+                    seed=seed,
+                    n_classes=n_classes,
+                )
+                score = cv_result["aggregated"][primary]["mean"]
+                persister(
+                    {
+                        "params": effective_params,
+                        "metrics": cv_result["aggregated"],
+                        "duration_s": cv_result["total_fit_seconds"],
+                    }
+                )
+                per_model_results[model_name] = {
+                    "best_score": score,
+                    "best_params": effective_params,
+                    "n_trials": 1,
+                    "aggregated_metrics": cv_result["aggregated"],
+                }
+                total_trials += 1
+            else:  # optuna
+                tune_result = search.tune(
+                    trainer=trainer,
+                    X=X,
+                    y=y,
+                    preprocessor=preprocessor,
+                    n_classes=n_classes,
+                    primary_metric=primary,
+                    time_budget_seconds=per_model_budget,
+                    n_trials_max=n_trials_max,
+                    n_splits=n_splits,
+                    seed=seed,
+                    on_trial_complete=persister,
+                )
+                per_model_results[model_name] = {
+                    "best_score": tune_result["best_score"],
+                    "best_params": tune_result["best_params"],
+                    "n_trials": tune_result["n_trials"],
+                    "elapsed_seconds": tune_result["elapsed_seconds"],
+                }
+                total_trials += tune_result["n_trials"]
+
+            # Track overall winner
+            if per_model_results[model_name]["best_score"] > overall_best_score:
+                overall_best_score = per_model_results[model_name]["best_score"]
+                overall_best_model = model_name
+                overall_best_params = per_model_results[model_name]["best_params"]
+
+        except Exception as e:
+            per_model_results[model_name] = {
+                "error": str(e),
+                "type": e.__class__.__name__,
+            }
+
+    # ---- 6. Update experiment row to complete ----
+    with storage.get_session() as s:
+        exp = s.get(storage.Experiment, experiment_id)
+        if exp is not None:
+            exp.status = "complete" if overall_best_model else "failed"
+            exp.best_model = overall_best_model
+            exp.best_score = overall_best_score if overall_best_model else None
+            exp.finished_at = datetime.utcnow()
 
     return {
         "experiment_id": experiment_id,
         "task_id": task_id,
-        "model": model_name,
+        "search_strategy": search_strategy,
+        "time_budget_seconds": time_budget_seconds if search_strategy == "optuna" else None,
         "primary_metric": primary,
-        "best_score": best_score,
-        "aggregated_metrics": cv_result["aggregated"],
-        "fold_metrics": cv_result["fold_metrics"],
-        "mean_fit_seconds": cv_result["mean_fit_seconds"],
-        "total_fit_seconds": cv_result["total_fit_seconds"],
-        "n_splits": cv_result["n_splits"],
-        "params_used": merged_params,
+        "models_run": model_list,
+        "best_model": overall_best_model,
+        "best_score": overall_best_score if overall_best_model else None,
+        "best_params": overall_best_params,
+        "total_trials": total_trials,
+        "per_model": per_model_results,
     }
+
+# Helper retained for clarity in this file — actual check isn't needed since
+# v0.1.0's trainers all support predict_proba. Drop on Day 5 cleanup.
+def BaseTrainer_predict_proba_default():
+    from mcp_ml_lab.trainers.base import BaseTrainer
+    return BaseTrainer.predict_proba
