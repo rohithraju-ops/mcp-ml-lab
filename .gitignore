@@ -39,3 +39,6 @@ examples/data/*.csv
 # OS
 .DS_Store
 Thumbs.db
+
+# build log
+BUILD_LOG.md

@@ -5,9 +5,12 @@ from typing import Any
 import numpy as np
 from lightgbm import LGBMClassifier
 from sklearn import set_config
+
 from mcp_ml_lab.trainers.base import BaseTrainer, ParamsSpace
 
 set_config(transform_output="pandas")
+
+
 class LightGBMTrainer(BaseTrainer):
     name = "lightgbm"
 
@@ -37,7 +40,7 @@ class LightGBMTrainer(BaseTrainer):
 
     def fit(self, X, y, params: dict) -> Any:
         merged = {**self.default_params(), **params}
-        # If subsample < 1.0 was passed in, also enable subsample_freq
+        # subsample_freq must be >0 for row subsampling to take effect in LightGBM
         if merged.get("subsample", 1.0) < 1.0 and merged.get("subsample_freq", 0) == 0:
             merged["subsample_freq"] = 1
         model = LGBMClassifier(**merged)
@@ -49,3 +52,6 @@ class LightGBMTrainer(BaseTrainer):
 
     def predict_proba(self, model: Any, X) -> np.ndarray:
         return model.predict_proba(X)
+
+    def feature_importance(self, model: Any) -> np.ndarray:
+        return model.feature_importances_

@@ -1,15 +1,13 @@
-# src/mcp_ml_lab/storage.py
-"""SQLite storage layer. Defines ORM models for tasks, experiments, trials.
+"""SQLite storage layer. ORM models for tasks, experiments, trials.
 
-The database file lives at ~/.mcp-ml-lab/store.db. Tables are auto-created on
-first import via Base.metadata.create_all().
+DB lives at ~/.mcp-ml-lab/store.db; tables are auto-created on first import.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import (

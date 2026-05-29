@@ -19,8 +19,8 @@ class XGBoostTrainer(BaseTrainer):
             "subsample": 1.0,
             "colsample_bytree": 1.0,
             "random_state": 42,
-            "n_jobs": -1,           # use all CPU cores
-            "tree_method": "hist",  # histogram-based split finding; XGBoost's modern default and 5-10x faster on tabular
+            "n_jobs": -1,
+            "tree_method": "hist",  # 5-10x faster than exact on tabular data
             "eval_metric": "logloss",
         }
 
@@ -34,7 +34,6 @@ class XGBoostTrainer(BaseTrainer):
         }
 
     def fit(self, X, y, params: dict) -> Any:
-        # Caller's params override defaults
         merged = {**self.default_params(), **params}
         model = XGBClassifier(**merged)
         model.fit(X, y)
@@ -45,3 +44,6 @@ class XGBoostTrainer(BaseTrainer):
 
     def predict_proba(self, model: Any, X) -> np.ndarray:
         return model.predict_proba(X)
+
+    def feature_importance(self, model: Any) -> np.ndarray:
+        return model.feature_importances_

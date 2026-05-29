@@ -1,9 +1,8 @@
 """Metric computation for classification.
 
-Binary tasks report accuracy / F1 / AUC / log_loss.
-Multi-class tasks report accuracy / F1_macro / F1_weighted / (AUC_ovr / log_loss when probas available).
-
-AUC and log_loss require predict_proba; they're skipped silently if the trainer returned None.
+Binary: accuracy, F1, AUC, log_loss.
+Multi-class: accuracy, F1_macro, F1_weighted, AUC_ovr, log_loss.
+AUC and log_loss require predict_proba; silently skipped when it returns None.
 """
 from __future__ import annotations
 
@@ -15,7 +14,8 @@ def compute_classification_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     y_proba: np.ndarray | None,
-    n_classes: int,) -> dict[str, float]:
+    n_classes: int,
+) -> dict[str, float]:
     metrics: dict[str, float] = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
     }

@@ -18,7 +18,6 @@ def test_load_csv_missing_file(tmp_path: Path) -> None:
 
 
 def test_validate_task_ok(breast_cancer_df) -> None:
-    # No exception means pass
     data.validate_task(breast_cancer_df, "target", "classification")
 
 
@@ -34,7 +33,6 @@ def test_validate_task_unsupported_type(breast_cancer_df) -> None:
 
 def test_infer_schema_breast_cancer(breast_cancer_df) -> None:
     schema = data.infer_schema(breast_cancer_df, "target")
-    # all 30 features are numeric floats
     assert len(schema["numeric"]) == 30
     assert schema["categorical"] == []
     assert schema["target"] == "target"
@@ -45,7 +43,6 @@ def test_build_preprocessor_returns_columntransformer(breast_cancer_df) -> None:
     schema = data.infer_schema(breast_cancer_df, "target")
     pre = data.build_preprocessor(schema)
     assert isinstance(pre, ColumnTransformer)
-    # not yet fit — fitting happens inside CV folds
     assert not hasattr(pre, "transformers_")
 
 

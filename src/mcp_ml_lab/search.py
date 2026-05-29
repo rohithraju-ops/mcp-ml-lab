@@ -1,8 +1,9 @@
-"""Cross-validation runner. Optuna-based tuning lands on Day 4."""
+"""Cross-validation runner and Optuna-based hyperparameter search."""
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import optuna
@@ -25,8 +26,9 @@ def cross_validate_classification(
     params: dict,
     n_splits: int = 5,
     seed: int = 42,
-    n_classes: int = 2,) -> dict[str, Any]:
-    
+    n_classes: int = 2,
+) -> dict[str, Any]:
+
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     fold_metrics: list[dict[str, float]] = []
     fold_durations: list[float] = []
@@ -35,10 +37,7 @@ def cross_validate_classification(
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
-        # Fresh, unfit copy of the preprocessor for THIS fold.
-        # clone() copies the recipe (transformer types, column lists) but NOT
-        # any learned state. This is the entire reason yesterday's
-        # build_preprocessor returned an unfit object.
+        # clone() copies transformer types + column lists, not learned state.
         pre = clone(preprocessor)
         X_train_t = pre.fit_transform(X_train)
         X_test_t = pre.transform(X_test)
@@ -55,7 +54,6 @@ def cross_validate_classification(
         )
         fold_durations.append(duration)
 
-    # Aggregate: mean and std across folds for every metric that appeared
     all_keys = set().union(*[m.keys() for m in fold_metrics])
     aggregated: dict[str, dict[str, float]] = {}
     for k in all_keys:
@@ -73,14 +71,8 @@ def cross_validate_classification(
         "n_splits": n_splits,
     }
 
-# src/mcp_ml_lab/search.py  (append after cross_validate_classification)
-
 def sample_params(trial: optuna.Trial, space: ParamsSpace) -> dict:
-    """Materialize concrete hyperparameters from a declarative space dict.
-
-    This is the bridge between trainer.params_space() (declarative, Optuna-free)
-    and an actual trial's suggest_* calls.
-    """
+    """Map a declarative ParamsSpace to Optuna suggest_* calls for one trial."""
     out: dict[str, Any] = {}
     for name, spec in space.items():
         kind = spec[0]
@@ -108,40 +100,19 @@ def tune(
     n_trials_max: int = 100,
     n_splits: int = 5,
     seed: int = 42,
-    on_trial_complete: Callable[[dict], None] | None = None,) -> dict:
-    """Run an Optuna study to tune one trainer's hyperparameters.
+    on_trial_complete: Callable[[dict], None] | None = None,
+) -> dict:
+    """Run an Optuna TPE study to tune one trainer's hyperparameters.
 
-    The objective function evaluates each suggested config with k-fold CV
-    and returns the mean of `primary_metric` across folds (the value Optuna
-    maximizes). Every completed trial is forwarded to `on_trial_complete` for
-    persistence — the search itself doesn't touch storage.
-
-    Args:
-        trainer: An instance from trainers.get_trainer().
-        X: Feature DataFrame.
-        y: Target array.
-        preprocessor: UNFIT ColumnTransformer. Cloned per fold inside CV.
-        n_classes: 2 for binary, >2 for multi-class.
-        primary_metric: Key into the aggregated metrics dict to optimize.
-        time_budget_seconds: Wall-clock budget. Optuna stops at first arrival
-            of (timeout, n_trials_max).
-        n_trials_max: Hard cap on trial count. Acts as a circuit breaker.
-        n_splits: CV folds per trial.
-        seed: Used by both the TPE sampler AND the per-trial CV. Same seed +
-            same data → identical trial sequence (useful for debugging).
-        on_trial_complete: Optional callback invoked once per trial with
-            {"params", "metrics", "duration_s"}. Used by run_experiment to
-            persist trials to SQLite.
-
-    Returns:
-        dict with `best_params`, `best_score`, `n_trials`, and `study_summary`.
+    Each trial runs k-fold CV and returns mean(primary_metric) for Optuna to
+    maximize. Stops at whichever limit arrives first: time_budget_seconds or
+    n_trials_max. on_trial_complete is called after each trial for persistence;
+    the search itself has no storage dependency.
     """
     space = trainer.params_space()
 
     def objective(trial: optuna.Trial) -> float:
         params = sample_params(trial, space)
-        # Merge with trainer defaults so non-searched params (random_state,
-        # n_jobs, etc.) still get set.
         merged = {**trainer.default_params(), **params}
 
         cv_result = cross_validate_classification(

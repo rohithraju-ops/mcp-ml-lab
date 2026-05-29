@@ -3,18 +3,22 @@
 name = "mcp-ml-lab"
 version = "0.1.0"
 description = "MCP server that lets AI agents run real ML experiments end-to-end."
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "Rohith" }]
-keywords = ["mcp", "ml", "automl", "xgboost", "lightgbm", "optuna"]
+keywords = ["mcp", "ml", "automl", "xgboost", "lightgbm", "optuna", "agents", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "mcp[cli]>=1.2.0",
@@ -40,6 +44,11 @@ dev = [
 
 [project.scripts]
 mcp-ml-lab = "mcp_ml_lab.server:main"
+
+[project.urls]
+Homepage = "https://github.com/rohithraju-ops/mcp-ml-lab"
+Repository = "https://github.com/rohithraju-ops/mcp-ml-lab"
+Issues = "https://github.com/rohithraju-ops/mcp-ml-lab/issues"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

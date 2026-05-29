@@ -1,7 +1,4 @@
-# src/mcp_ml_lab/data.py
-"""Data loading, validation, schema inference, preprocessor construction.
-   Nothing in this module is MCP-aware.
-"""
+"""Data loading, validation, schema inference, preprocessor construction."""
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 VALID_TASK_TYPES = {"classification", "regression"}
-# v0.1.0 only wires classification through the trainers, but the data layer is written to support both
+# v0.1.0 trainers only support classification, but the data layer accepts both
 SUPPORTED_TASK_TYPES = {"classification"}
 
 
@@ -68,7 +65,8 @@ def validate_task(df: pd.DataFrame, target_column: str, task_type: str) -> None:
 def infer_schema(
     df: pd.DataFrame,
     target_column: str,
-    ignore_columns: list[str] | None = None,) -> dict[str, Any]:
+    ignore_columns: list[str] | None = None,
+) -> dict[str, Any]:
     """Split feature columns into numeric / categorical / ignored.
 
     Rules:
@@ -111,10 +109,10 @@ def infer_schema(
 
 
 def build_preprocessor(schema: dict[str, Any]) -> ColumnTransformer:
-    """Building an UNFIT ColumnTransformer from a schema dict.
+    """Return an unfit ColumnTransformer from a schema dict.
 
-    The preprocessor is intentionally not fit here. Fitting happens inside CV
-    folds during experiments, so the test fold never influences thescaler/encoder.
+    Intentionally unfit so callers can clone it per CV fold — the test fold
+    never influences the scaler/encoder state.
     """
 
     transformers = []
@@ -144,7 +142,8 @@ def train_test_split_stratified(
     target_column: str,
     task_type: str,
     test_size: float = 0.2,
-    seed: int = 42,) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    seed: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Stratified split for classification, plain random split for regression."""
     y = df[target_column]
     X = df.drop(columns=[target_column])
@@ -154,13 +153,8 @@ def train_test_split_stratified(
     )
 
 
-def generate_task_id(
-    csv_path: str | Path, target_column: str, task_type: str) -> str:
-    """Deterministic task id: same inputs always produce the same id.
-
-    Format: task_<csv_stem>_<8-char hash of (abs_path|target|task_type)>
-    Idempotent define_task calls become trivial: same args -> same id -> skip insert.
-    """
+def generate_task_id(csv_path: str | Path, target_column: str, task_type: str) -> str:
+    """Return a deterministic task id: task_<csv_stem>_<8-char md5 of (path|target|type)>."""
     p = Path(csv_path).expanduser().resolve()
     raw = f"{p}|{target_column}|{task_type}".encode()
     digest = hashlib.md5(raw).hexdigest()[:8]

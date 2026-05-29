@@ -53,3 +53,11 @@ class BaseTrainer(ABC):
         and log loss reporting for that trainer (accuracy/F1 still work).
         """
         return None
+
+    def feature_importance(self, model: Any) -> np.ndarray | None:
+        """Return per-feature importance scores (shape: (n_features,)) or None.
+
+        Subclasses override when the underlying library exposes importances.
+        Returning None lets reporting code skip the section gracefully.
+        """
+        return None
