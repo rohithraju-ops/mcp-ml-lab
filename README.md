@@ -115,3 +115,5 @@ npx @modelcontextprotocol/inspector mcp-ml-lab
 ## License
 
 MIT.
+
+  <!-- mcp-name: io.github.rohithraju-ops/mcp-ml-lab -->
