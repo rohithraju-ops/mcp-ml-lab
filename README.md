@@ -2,8 +2,8 @@
 
 **Let AI agents run real ML experiments end-to-end.**
 
-[![PyPI](https://img.shields.io/pypi/v/mcp-ml-lab.svg)](https://pypi.org/project/mcp-ml-lab/)
-[![Python](https://img.shields.io/pypi/pyversions/mcp-ml-lab.svg)](https://pypi.org/project/mcp-ml-lab/)
+[![PyPI](https://img.shields.io/pypi/v/mcp-ml-lab)](https://pypi.org/project/mcp-ml-lab/)
+[![Python](https://img.shields.io/pypi/pyversions/mcp-ml-lab)](https://pypi.org/project/mcp-ml-lab/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 An MCP server that gives Claude (or any MCP-aware AI agent) the ability to
